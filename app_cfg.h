@@ -1,0 +1,191 @@
+/********************************************************************************************************
+**                            (c) Copyright  苏州市江海通讯发展实业有限公司
+**                                      All Rights Reserved                                        
+**
+**---------------------------- 文件信息 -----------------------------------------------------------------
+** 文   件   名:  app_cfg.h
+** 创   建   人:  林依刚
+** 版        本:  V1.0
+** 最后修改日期:  2009-10-26
+** 描        述:  31号机控制软件应用程序配置头文件
+** 操作系统版本： μC/OS-II V2.76  
+********************************************************************************************************/
+#ifndef APP_CFG_H
+#define APP_CFG_H
+
+/******************************** μC/OS-II V2.76 建立各任务相关参数设置 ********************************/
+// 各任务优先级分配
+#define MiYaoConTrol_TASK_PRIO              1
+#define MiYaoConTrol_TASK_SIZE			        512
+#define StarConTrol_TASK_PRIO               2
+#define StarConTrol_TASK_SIZE			          512
+
+#define STAR_RECE_TASK_PRIO                 4
+#define TERM_RECE_TASK_PRIO                 5
+#define STAR_ALARM_TASK_PRIO                6
+#define STAR_SEND_TASK_PRIO                 7
+#define DSC_ALARM_TASK_PRIO                 8
+#define SERVE_TASK_PRIO                     10
+#define LAMP_TASK_PRIO                     11
+#define TONE_SWEEP_TASK_PRIO               12
+#define MikePttTask_PRIO				   13
+//#define STAR_ERROR_TASK_PRIO			    8//2019-11-18
+
+// 各任务堆栈空间大小分配(位宽:32-bit)
+#define TERM_RECE_TASK_STK_SIZE          1024//256
+#define	STAR_RECE_TASK_STK_SIZE          1024//256
+#define LAMP_TASK_STK_SIZE                512//128
+#define STAR_SEND_TASK_STK_SIZE          1024//128
+#define DSC_ALARM_TASK_STK_SIZE           512//128
+#define STAR_ALARM_TASK_STK_SIZE         1024//128
+#define SERVE_TASK_STK_SIZE               512//256
+#define TONE_SWEEP_TASK_STK_SIZE          512//256
+#define MikePttTask_SIZE				  512//256
+//#define STAR_ERROR_STK_SIZE				 1024//128
+//-------------------------------------------------------------------------------------------------------
+
+/******************************** 软件在DATAFLASH中保存初始化信息的地址 **************************/
+#define MEM_PA_INIT_DATA                    1     // 初始化信息备份在AT45DB021B中的页面地址
+#define MEM_BA_INIT_DATA                    0     // 初始化信息备份在AT45DB021B中的页面字节起始地址
+
+/*************************************** 系统通信相关宏定义 ********************************************/
+#define PIOA_INT_PRIO                       3     // 微控制器PIOA的中断优先级
+#define PIOB_INT_PRIO                       3     // 微控制器PIOB的中断优先级
+
+
+#define SYS_WORK_MODE_35                   35     // 35号机工作模式
+#define SYS_WORK_MODE_37                   37     // 37号机工作模式
+
+#define TERM_FR_HEADER                   0x26     // 终端数据帧报头 "&"
+#define SIG_DETECT_PERIOD                   1     // 卫星信号检测周期 单位：秒 (signal detect period)
+#define DLY_MS_MATCH_STAR                 200     // 匹配卫星延时 单位:ms
+#define DLY_MS_MATCH_TERM                 200     // 匹配终端延时 单位:ms
+#define SWEEP_TIME_SLOT                   200     // 话音信道扫频时隙 单位:ms
+#define DLY_MS_AM_PWR_ON                  100
+// ----------------- DSC alarm time tick -------------------
+#define DSC_ALM_TIME_BASE                 240     // DSC报警时间间隔基准 单位:秒,以后逐次延长一个步长
+#define DSC_ALM_TIME_STEP                  10     // DSC报警时间间隔步长 单位:秒
+
+// ----------------- msg_header mask -----------------------
+#define ALM_MSG_TOTAL_LEN  sizeof(ALM_MSG_TYPE)   // 卫星报警电文内容长度为:31
+#define ALM_MSG_HEADER0        ((INT8U) 0xA3)     // 自定义通信信息报头（遇险报）
+#define ALM_MSG_HEADER1_CHR    ((INT8U) 0xC1)     // 自定义通信信息类型（潜艇浮标汉字通信）
+#define ALM_MSG_HEADER1_CODE   ((INT8U) 0x3E)     // 自定义通信信息类型（潜艇浮标代码通信）
+
+//新增密钥控制程序--------宋玉祥--------//
+#define MIYAOWSHF						 0x9a	  // 密钥握手回复指令
+#define MIYAOZFSTART				     0x9c	  // 密钥握手转发指令
+//新增密钥控制程序--------宋玉祥--------//
+
+
+
+//--终端至浮标控制指令类型
+enum T2B_CMD_TYPE {
+    T2B_CMD_WSZL              = 0x01,   // 握手指令
+    T2B_CMD_CSXX              = 0x03,   // 初始信息
+    T2B_CMD_ZJZL              = 0x05,   // 自检指令
+    T2B_CMD_DCJC              = 0x07,   // 电池检测
+    T2B_CMD_BAT_SW            = 0x09,   // 浮标电池开关指令
+    T2B_CMD_WORK_MODE         = 0x0B,   // 工作模式选择指令（仅卫通信道工作/全信道工作）
+    T2B_CMD_BD1_SW            = 0x0D,   // 北斗模块开关指令
+    T2B_CMD_VHF_SW            = 0x0F,   // VHF模块开关指令
+       
+    T2B_CMD_9G_SW             = 0x11,   // 9G模块应答开关指令
+    T2B_CMD_VHF_PTT           = 0x13,   // VHF-PTT控制指令
+    T2B_CMD_VHF_CH            = 0x15,   // VHF模块频道设置指令
+    T2B_CMD_SJXX              = 0x17,   // 时间信息（终端系统时间）   
+    T2B_CMD_WZXX              = 0x19,   // 位置信息（人工输入位置）
+    T2B_CMD_ZHZL              = 0x1B,   // 自环指令
+    T2B_CMD_BWZL              = 0x1D,   // 报文指令
+    T2B_CMD_DWZL              = 0x1F,   // 定位指令
+    
+    T2B_CMD_LAMP_MODE         = 0x21,   // 闪光灯工作模式指令   
+    T2B_CMD_BJZL              = 0x23,   // 报警指令
+    T2B_CMD_YXXZ              = 0x25,   // 遇险性质
+    T2B_CMD_SSZL              = 0x27,   // 授时指令
+       
+    T2B_CMD_AM_PTT            = 0x31,   // 航空模块-PTT控制指令
+    T2B_CMD_TONE_SWEEP        = 0x33,   // 扫频控制指令
+    T2B_CMD_WLYB              = 0x35,   // 无缆预备指令
+    T2B_CMD_AM_JZ             = 0x37,   // 航空模块-静噪控制指令 
+
+	//T2B_CMD_KGJ				  =	0x
+
+
+	//新增指令
+	T2B_CMD_KJBG			  = 0x41,
+	T2B_CMD_GJBG			  = 0X43,
+	T2B_CMD_JMSQ			  =	0x45,
+	T2B_CMD_JMJC			  =	0x47,
+	T2B_CMD_SXCX			  =	0x49,
+	T2B_CMD_ZHSQ			  =	0x51,
+	
+   
+    T2B_CMD_BD1_GLCS          = 0x81,   // 卫星通信模块功率测试
+    T2B_CMD_BD1_WMCS          = 0x83,   // 卫星通信模块误码测试
+    T2B_CMD_DSC_TEST          = 0x85,   // DSC测试指令
+    
+  	T2B_CMD_BAT_DATE          = 0x91,   // 设置电池日期
+  	T2B_CMD_BAT_DATE_CAP      = 0x93,   // 设置电池日期及电量
+  	T2B_CMD_BD1_GXCX          = 0x95,   // 北斗管信查询
+  	T2B_CMD_BD1_GXSZ          = 0x97    // 北斗管信设置
+
+	
+};
+
+//--浮标至终端控制指令类型
+enum B2T_CMD_TYPE {
+    B2T_CMD_WSHF              = 0x02,   // 握手回复
+    B2T_CMD_ZJXX              = 0x06,   // 自检信息
+    B2T_CMD_DCXX              = 0x08,   // 电池信息
+ 
+    B2T_CMD_9G_RESP           = 0x10,   // 9G模块应答信息
+    B2T_CMD_CXSJ              = 0x16,   // 查询时间
+    B2T_CMD_CXWZ              = 0x18,   // 查询位置
+    B2T_CMD_ZHOK              = 0x1C,   // 自环成功
+    B2T_CMD_BWOK              = 0x1E,   // 岸基报文已收妥
+    
+    B2T_CMD_BJOK              = 0x24,   // 岸基报警已收妥
+    
+    B2T_BD1_GLZK              = 0x30,   // 功率状况
+    B2T_BD1_TXXX              = 0x32,   // 通信信息
+    B2T_BD1_DWXX              = 0x34,   // 定位信息
+    B2T_BD1_SJXX              = 0x36,   // 时间信息
+    B2T_BD1_ICXX              = 0x38,   // IC信息
+    
+    B2T_CMD_TONE_LOCK         = 0x40,   // 扫频停止，锁定频道
+    B2T_CMD_DYXX              = 0x42,   // 浮标VCC/+15V-BD电压信息  
+    B2T_CMD_HTZT              = 0x44,   // 浮标话筒状态
+
+	//新增指令
+    B2T_CMD_ZQXH			  =	0x46,   //增强信号
+    B2T_CMD_PDTZ			  =	0x48,	//频度调整
+    B2T_CMD_KGST			  =	0x50,   //开关机反馈
+    B2T_CMD_JMST			  =	0x52,  //静默状态
+    B2T_CMD_SQCG			  = 0x54,	//授启成功 
+    B2T_CMD_SXXX			  =	0x56,   //时效信息
+    B2T_CMD_ZHQR			  = 0x58,	//自毁确认
+    B2T_CMD_FKXX			  = 0x60,	//反馈信息
+    B2T_CMD_QPXH			  =	0x62,	//欺骗信号
+    B2T_CMD_FXTS			  = 0x64,	//风险提示
+    
+    B2T_CMD_BD1_WMXX          = 0x84,   // 误码测试结果信息    
+    
+    B2T_BD1_GXXX              = 0x96,   // 管信信息
+ 			  
+       
+    B2T_CMD_ACK               = 0xA0,   // 命令正确应答(Acknowlegment)
+    B2T_CMD_NAK               = 0xA1,   // 命令错误应答(Negative Acknowlegment)
+    B2T_CMD_DWSQ_OK           = 0xB0,   // 发送定位申请成功
+    B2T_CMD_DWSQ_FAIL         = 0xB1,   // 发送定位申请失败
+    B2T_CMD_TXSQ_OK           = 0xB2,   // 发送通信申请成功
+    B2T_CMD_TXSQ_FAIL         = 0xB3,   // 发送通信申请失败
+    B2T_CMD_SJSC_OK           = 0xB4,   // 发送时间输出成功
+    B2T_CMD_SJSC_FAIL         = 0xB5    // 发送时间输出失败
+    			  
+    
+};
+
+//-------------------------------------------------------------------------------------------------------
+
+#endif

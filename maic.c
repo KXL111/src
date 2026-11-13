@@ -1,0 +1,512 @@
+/********************************************************************************************************
+**                            (c) Copyright  苏州市江海通讯发展实业有限公司
+**                                      All Rights Reserved                                        
+**
+**---------------------------- 修订版本信息--------------------------------------------------------------
+** 修   定   人:  庄鑫
+** 版        本:  V2.2
+** 日　      期:  2024-42-24
+** 描　      述:  统一密钥注入缓冲区大小512，解决密钥注入失败问题
+** 
+**---------------------------- 文件信息 -----------------------------------------------------------------
+** 文   件   名:  main.c
+** 修   定   人:  林依刚
+** 版        本:  V2.1
+** 最后修改日期:  2010-11-8
+** 描        述:  31号机控制软件 
+** 操作系统版本： μC/OS-II V2.76  
+**   
+**---------------------------- 修订版本信息--------------------------------------------------------------
+** 修   定   人:  林依刚
+** 版        本:  V1.1
+** 日　      期:  2008-12-15
+** 描　      述:  调整看门狗时序，无缆启动、结束状态。
+**               
+**---------------------------- 历史版本信息 -------------------------------------------------------------
+** 创   建   人:  林依刚
+** 版        本:  V1.0
+** 日　      期:  2007-12-10
+** 描　      述:  创建软件各功能任务，初始化并启动 μC/OS-II 多任务运行
+** 
+********************************************************************************************************/ 
+  
+#include "app.h"
+
+#define BOARD_MCK             ((18432000*73/14)/2)     /* Output PLL Clock 48MHz                       */ 
+#define MYJZ_BUFF_SIZE        512                      /*20241224增加，增加秘钥加注缓冲区宏定义*/
+/********************************************************************************************************
+*                                       TASK'S STACK ASSIGN                                        
+********************************************************************************************************/  
+static  OS_STK  TermReceTaskStk[TERM_RECE_TASK_STK_SIZE]; 
+static  OS_STK  StarReceTaskStk[STAR_RECE_TASK_STK_SIZE];
+static  OS_STK  LampTaskStk[LAMP_TASK_STK_SIZE];
+static  OS_STK  StarSendTaskStk[STAR_SEND_TASK_STK_SIZE];
+static  OS_STK  DscAlarmTaskStk[DSC_ALARM_TASK_STK_SIZE];
+static  OS_STK  StarAlarmTaskStk[STAR_ALARM_TASK_STK_SIZE];
+static  OS_STK  ServeTaskStk[SERVE_TASK_STK_SIZE];
+static  OS_STK  ToneSweepTaskStk[SERVE_TASK_STK_SIZE];
+static  OS_STK  MikePttTaskStk[MikePttTask_SIZE];
+//static  OS_STK  StarErrorBitTestTaskStk[STAR_ERROR_STK_SIZE];
+
+
+/********************************************************************************************************
+*                                       FUNCTION PROTOTYPES                                         
+********************************************************************************************************/
+static  void  TermReceTask(void *pdata);   
+static  void  StarReceTask(void *pdata);
+static  void  LampTask(void *pdata); 
+static  void  StarSendTask(void *pdata);   
+static  void  DscAlarmTask(void *pdata); 
+static  void  StarAlarmTask(void *pdata);
+static  void  ServeTask(void *pdata);   
+static  void  ToneSweepTask(void *pdata);
+static  void  MikePttTask(void *pdata);
+//static  void  StarErrorBitTestTask(void *pdata);
+
+
+//extern OS_EVENT					 *Star_Err_Bit_Test;	   // 卫星误码率测试信号量
+//void    StarBitErrTest(INT8U iq, INT8U wave_nbr, INT8U min);
+
+static OS_STK  MiYaoConTrolTaskStk[MiYaoConTrol_TASK_SIZE];
+void MiYaoConTrolTask(void *pdata);
+extern OS_EVENT     *MIYAO_TASK ; 
+static OS_STK  StarConTrolTaskStk[StarConTrol_TASK_SIZE];
+void StarConTrolTask(void *pdata);
+extern OS_EVENT     *StarControl_TASK ;
+
+unsigned int us0readsize = 0;
+unsigned int us1readsize = 0;
+
+
+/********************************************************************************************************
+* Function Name : MiYaoConTrolTask
+*
+* Description   : 密钥注入任务
+*
+* Arguments     : pdata
+*                 
+* Returns       : None                                              
+********************************************************************************************************/
+
+void MiYaoConTrolTask(void *pdata)
+{
+	 INT8U         err;
+	 INT8U us0readdata[MYJZ_BUFF_SIZE];
+	 
+	 CommInit();
+	 while(1)
+	 {
+	 	OSSemPend(MIYAO_TASK,0,&err);  	//等待密钥注入信号量
+
+		/* Configure baudrate*/
+		AT91C_BASE_US0->US_BRGR = (BOARD_MCK / 115200) / 16; //配置舱内终端串口0波特率为115200
+		
+		g_Flg.m_SigDetectEn = 0;                            /* 20241224增加，失能卫星数据发送处理期间暂停周期场强检测    */
+
+		OSTaskDel(STAR_RECE_TASK_PRIO);		//删除其余所有任务
+
+		OSTaskDel(TERM_RECE_TASK_PRIO);
+		
+		OSTaskDel(STAR_ALARM_TASK_PRIO);
+		
+		OSTaskDel(STAR_SEND_TASK_PRIO);
+		
+		OSTaskDel(DSC_ALARM_TASK_PRIO);
+		
+		OSTaskDel(LAMP_TASK_PRIO);
+				
+	    OSTaskDel(TONE_SWEEP_TASK_PRIO);
+		
+		//OSTaskDel(SERVE_TASK_PRIO);
+		
+		OSTaskDel(MikePttTask_PRIO);
+
+		OSSemPost(StarControl_TASK);
+	
+	 	while(1)
+	 	{
+	 		UsartRead(1, us0readdata, MYJZ_BUFF_SIZE, 0);
+	 		
+			UsartWrite(0,us0readdata,us1readsize,0);
+	 	}
+	 }
+}
+/********************************************************************************************************
+* Function Name : MiYaoConTrolTask
+*
+* Description   : 密钥注入任务
+*
+* Arguments     : pdata
+*                 
+* Returns       : None                                              
+********************************************************************************************************/
+
+void StarConTrolTask(void *pdata)
+{
+	INT8U         err;
+	INT8U us1readdata[MYJZ_BUFF_SIZE];
+	
+	while(1)
+	{
+		OSSemPend(StarControl_TASK,0,&err);  	//等待密钥注入信号量
+		while(1)
+		{
+			UsartRead(0, us1readdata, MYJZ_BUFF_SIZE, 0); 
+	 					
+			UsartWrite(1,us1readdata,us0readsize,0);
+		}
+	}
+}
+
+/********************************************************************************************************
+* Function Name : StarReceTask
+*
+* Description   : Create the task
+*
+* Arguments     : pdata
+*                 
+* Returns       : None                                              
+********************************************************************************************************/
+static  void  StarReceTask(void *pdata)
+{       
+    while (1)
+    { 
+        StarCommRece();			
+    }
+} 
+
+/********************************************************************************************************
+* Function Name : StarSendTask
+*
+* Description   : Create the task for star's communication 
+*
+* Arguments     : pdata
+*                 
+* Returns       : None
+********************************************************************************************************/
+static  void  StarSendTask(void *pdata)
+{
+    while (1)
+    { 
+        StarCommSend();
+    }
+} 
+
+/********************************************************************************************************
+* Function Name : TermReceTask
+*
+* Description   : Create the task for terminal communication.
+*
+* Arguments     : pdata
+*                 
+* Returns       : None                                              
+********************************************************************************************************/
+static  void  TermReceTask(void *pdata)
+{             		 
+    while (1)
+    {
+        TermCommRece();
+    }
+}
+
+/********************************************************************************************************
+* Function Name : DscAlarmTask
+*
+* Description   : if system is alarm status and the VHF module is open,then send the DSC alarm list.
+*
+* Arguments     : pdata
+*                 
+* Returns       : None                                              
+********************************************************************************************************/
+static  void  DscAlarmTask(void *pdata)
+{                   		 
+    while (1) 
+    {
+        if(g_Flg.m_NatAlm || g_Flg.m_PassAlm)
+            DscAlarmProc();
+        else
+            OSTaskSuspend(DSC_ALARM_TASK_PRIO);
+    }
+}
+
+/********************************************************************************************************
+* Function Name : StarAlarmaTask
+*
+* Description   : Create the task for star alarm
+*
+* Arguments     : pdata
+*                 
+* Returns       : None                                              
+********************************************************************************************************/
+static  void  StarAlarmTask(void *pdata)
+{              		 
+    while (1)
+    {	
+        if (g_Flg.m_NatAlm || g_Flg.m_PassAlm)
+            StarAlarmProc();
+        else
+            OSTaskSuspend(STAR_ALARM_TASK_PRIO);
+    }
+}
+
+/********************************************************************************************************
+* Function Name : LampTask
+*
+* Description   : Create the task for controlling the lamp
+*
+* Arguments     : lamp_mode    the lamp work mode.
+*                 
+* Returns       : None
+********************************************************************************************************/
+static  void  LampTask(void *pdata) 
+{              			 	 	 
+    while (1)
+    {
+    	switch(g_Flg.m_LampMode)
+    	{    
+    		case 0x01:                            /* default work mode.priod is 10s,glitter 2 times.   */
+    			if (g_Flg.m_LampMode != 0x01)
+    			    break;
+    			LED_ON(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 1, 0);
+    			if (g_Flg.m_LampMode != 0x01)
+    			    break;
+                LED_OFF(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 1, 0);
+    			if (g_Flg.m_LampMode != 0x01)
+    			    break;
+                LED_ON(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 1, 0);
+    			if (g_Flg.m_LampMode != 0x01)
+    			    break;
+                LED_OFF(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 7, 0);
+                break;  
+            case 0x02:                            /* priod is 2s,glitter 2 times.                      */
+    			if (g_Flg.m_LampMode != 0x02)
+    			    break;
+                LED_ON(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 1, 0);
+    			if (g_Flg.m_LampMode != 0x02)
+    			    break;
+                LED_OFF(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 1, 0);
+                break;      
+            case 0x03:                            /* on all the time.                                  */
+                LED_ON(LED_FLASH_LAMP);
+                OSTaskSuspend(LAMP_TASK_PRIO);
+                break;            
+            case 0x04:                            /* priod is 20s,glitter 2 times,used in wireless mode*/
+    			if (g_Flg.m_LampMode != 0x04)
+    			    break;
+                LED_ON(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 1, 0);
+    			if (g_Flg.m_LampMode != 0x04)
+    			    break;
+                LED_OFF(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 1, 0);
+    			if (g_Flg.m_LampMode != 0x04)
+    			    break;
+                LED_ON(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 1, 0);
+    			if (g_Flg.m_LampMode != 0x04)
+    			    break;
+                LED_OFF(LED_FLASH_LAMP);
+                OSTimeDlyHMSM(0, 0, 17, 0);
+                break;
+            default:                              /* other value stop the lamp and suspend lamp task.  */       
+                LED_OFF(LED_FLASH_LAMP);
+                OSTaskSuspend(LAMP_TASK_PRIO);
+                break;
+        }		
+    }
+}
+
+/********************************************************************************************************
+* Function Name : ToneSweepTask
+*
+* Description   : Create the task for tone sweep
+*
+* Arguments     : pdata
+*                 
+* Returns       : None                                              
+********************************************************************************************************/
+static  void  ToneSweepTask(void *pdata)
+{              		 
+    while (1)
+    {	
+        ToneSweep();
+    }
+}
+
+/********************************************************************************************************
+* Function Name : ServeTask
+*
+* Description   : Create the task
+*
+* Arguments     : pdata
+*                 
+* Returns       : None
+********************************************************************************************************/
+static  void  ServeTask(void *pdata)
+{
+    OS_CPU_SR   cpu_sr;
+    INT8U       buf[16];
+
+    while (1)
+    {   
+        AT91C_BASE_WDTC->WDTC_WDCR = 0xA5000001;            /* 复位看门狗定时器,KEY = 0xA5<<24         */
+        OSTimeDlyHMSM(0, 0, 1, 0);
+        MikePttChk();
+        
+        OSTimeDlyHMSM(0, 0, 0, 500);
+        MikePttChk();
+        
+        OSTimeDlyHMSM(0, 0, 0, 500);
+        if (g_Flg.m_SigDetectEn)                            /* 卫星数据发送处理期间暂停周期场强检测    */
+            StarSigDetect();		                        /* 卫星信号场强检测                        */
+        
+        OSTimeDlyHMSM(0, 0, 1, 0);
+        MikePttChk();
+        
+        OSTimeDlyHMSM(0, 0, 1, 0);
+        MikePttChk();
+        
+        if (!g_Flg.m_WlMode)                                /* 有缆模式下，检测9GHz模块是否应答并处理  */
+        {
+            if (g_Flg.m_9GAck)
+            {
+                static INT8U resp_result = 0;
+                TermCommSend(B2T_CMD_9G_RESP, &resp_result, 1);/* 通知舱内终端已自动应答               */
+                if (!g_Flg.m_9GTest)
+                    g_Flg.m_9GAck = 0;                      /* 清零应答标志,模块未应答时不发信息给终端 */
+            }
+            *AT91C_PIOB_IER = NG_RESP_IN;	                /* 使能9GHz模块应答中断                    */
+        }
+            
+        if ((*AT91C_PIOB_PDSR & SYS_PWR_CUR) == 0x00)       /* 舱内终端供电消失?                       */
+        {
+        	if (!g_Flg.m_WlMode)
+        	{
+        	    if (((g_Flg.m_WorkMode ==  SYS_WORK_MODE_37) && (g_Flg.m_PreWlMode)) ||
+                    ((g_Flg.m_WorkMode ==  SYS_WORK_MODE_35) && ((*AT91C_PIOB_PDSR & SYS_CABLE_CHK) == 0x00)))
+                {   
+                	g_Flg.m_WlMode   = 1;                   /* 设置无缆模式标志位                      */
+                    g_Flg.m_NatAlm   = 1;                   /* 设置本地报警标志位                      */
+                    g_Flg.m_BdAlmCtr = 1;                   /* 报警次数，重新计数                      */
+                    g_Flg.m_ExistPos = 0;	                /* 报警时，重新定位                        */
+                    VhfPwrDis();                            /* 无缆模式下，关闭VHF模块                 */
+                    NGRespDis();                            /* 无缆模式下，关闭9G模块                  */
+                    OSTaskResume(STAR_ALARM_TASK_PRIO);     /* 恢复卫星报警及闪光灯控制任务            */
+                    g_Flg.m_LampMode = 0x04;                /* 无缆模式下，灯光信号闪烁周期设为20S     */
+                    OSTimeDlyResume(LAMP_TASK_PRIO);
+                    OSTaskResume(LAMP_TASK_PRIO);
+                }
+  	            else                                        /* 断缆检测信号线未断开                    */
+  	            {   
+  	                OS_ENTER_CRITICAL();                    /* 进入临界代码区，执行此段程序不允许中断  */
+                    DS2788_BatMeas(buf);                    /* 备份DS2788的累加电流寄存器              */
+                    OS_EXIT_CRITICAL();                     /* 退出临界代码区，所有中断正常响应        */
+                    OSTimeDlyHMSM(0, 0, 0, DLY_MS_MATCH_TERM);
+                    BAT_OFF();                              /* 切断电池供电，正常关机                  */
+                }
+            }
+        }
+        else if (g_Flg.m_WlMode)                            /* 舱内终端供电正常且目前处于无缆工作模式  */
+        { 
+            g_Flg.m_PreWlMode= 0;                           /* 清除无缆预备模式标志位                  */
+            g_Flg.m_WlMode   = 0;                           /* 清除无缆模式标志位，恢复至有缆模式      */
+            g_Flg.m_NatAlm   = 0;                           /* 停止报警，清除本地报警标志位            */
+            g_Flg.m_PassAlm  = 0;                           /* 清除被动报警标志位                      */
+            VhfPwrEn();                                     /* 有缆模式下，开启VHF模块                 */
+            NGRespEn();                                     /* 有缆模式下，开启9G模块                  */
+            g_Flg.m_LampMode = 0x01;                        /* 灯光信号闪烁周期设为10S                 */
+            OSTimeDlyResume(LAMP_TASK_PRIO);
+            OSTaskResume(LAMP_TASK_PRIO);
+        }
+    }
+}
+
+static  void  MikePttTask(void *pdata)
+{
+		while(1)
+		{
+			MikePttChk();
+			OSTimeDlyHMSM(0, 0, 0, 100);
+		}
+}
+/********************************************************************************************************
+* Function Name : StarErrorBitTestTask
+*
+* Description   : 卫星误码率测试任务程序
+*
+* Arguments     : pdata
+*                 
+* Returns       : None                                              
+********************************************************************************************************/
+//static  void  StarErrorBitTestTask(void *pdata)
+//{
+//	INT8U         err;
+//	while(1)
+//	{
+//		OSSemPend(Star_Err_Bit_Test,0,&err);           /* 等待接收信号量. */
+//		StarBitErrTest(0, 1, 1);
+//	}
+//}
+
+
+/********************************************************************************************************
+* Function Name : main
+*
+* Description   : The main function creates and starts the multitask. 
+*
+* Arguments     : None
+*                 
+* Returns       : None
+********************************************************************************************************/
+int main(void) 
+{       
+    OSInit();                                     /* Initialize "μC/OS-II, The Real-Time Kernel"       */ 
+    	
+    
+    OSTaskCreate(MiYaoConTrolTask, (void *)0, (OS_STK *)&MiYaoConTrolTaskStk[MiYaoConTrol_TASK_SIZE-1],
+                 MiYaoConTrol_TASK_PRIO);
+
+	OSTaskCreate(StarConTrolTask, (void *)0, (OS_STK *)&StarConTrolTaskStk[StarConTrol_TASK_SIZE-1],
+                 StarConTrol_TASK_PRIO);
+
+    OSTaskCreate(StarReceTask, (void *)0, (OS_STK *)&StarReceTaskStk[STAR_RECE_TASK_STK_SIZE-1],
+                 STAR_RECE_TASK_PRIO);
+                                     
+    OSTaskCreate(TermReceTask, (void *)0, (OS_STK *)&TermReceTaskStk[TERM_RECE_TASK_STK_SIZE-1], 
+                 TERM_RECE_TASK_PRIO);
+
+    OSTaskCreate(StarSendTask, (void *)0, (OS_STK *)&StarSendTaskStk[STAR_SEND_TASK_STK_SIZE-1], 
+                 STAR_SEND_TASK_PRIO);
+
+    OSTaskCreate(LampTask, (void *)0, (OS_STK *)&LampTaskStk[LAMP_TASK_STK_SIZE-1], 
+                 LAMP_TASK_PRIO);
+                
+    OSTaskCreate(DscAlarmTask, (void *)0, (OS_STK *)&DscAlarmTaskStk[DSC_ALARM_TASK_STK_SIZE-1], 
+                 DSC_ALARM_TASK_PRIO);
+  
+    OSTaskCreate(StarAlarmTask, (void *)0, (OS_STK *)&StarAlarmTaskStk[STAR_ALARM_TASK_STK_SIZE-1], 
+                 STAR_ALARM_TASK_PRIO);
+
+    OSTaskCreate(ToneSweepTask, (void *)0, (OS_STK *)&ToneSweepTaskStk[TONE_SWEEP_TASK_STK_SIZE-1], 
+                 TONE_SWEEP_TASK_PRIO);
+                                     
+    OSTaskCreate(ServeTask, (void *)0, (OS_STK *)&ServeTaskStk[SERVE_TASK_STK_SIZE-1], 
+                 SERVE_TASK_PRIO);
+                 
+    OSTaskCreate(MikePttTask, (void *)0, (OS_STK *)&MikePttTaskStk[MikePttTask_SIZE-1], 
+                 MikePttTask_PRIO);
+                 
+//    OSTaskCreate(StarErrorBitTestTask,(void *)0,(OS_STK *)&StarErrorBitTestTaskStk[STAR_ERROR_STK_SIZE-1],
+//                 STAR_ERROR_TASK_PRIO);
+                        
+    OSStart();                                    /* Start multitasking (i.e. give control to μC/OS-II)*/
+    return(1);                                    /* Normally,never return                             */
+} 
+
+/******************************************** End Of File **********************************************/
